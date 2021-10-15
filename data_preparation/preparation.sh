@@ -1,0 +1,5 @@
+wav_dir="yourdirtoCommonVoicewavs"
+python parallel_os_compare_extraction.py $wav_dir compare_dir
+python parallel_os_gemaps_extraction.py $wav_dir gemaps_dir
+python parallelized_mix.py compare_dir gemaps_dir mixed_dir
+python lld_normalization.py mixed_dir normalized_dir

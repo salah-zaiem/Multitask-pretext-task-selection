@@ -1,0 +1,39 @@
+# ############################################################################
+# Model: xvector for Speaker verification
+# ############################################################################
+
+save_folder: sparsemax_512
+embedding_model_file: results/sparsemax_512/1986/save/CKPT+2021-09-28+17-37-05+00/embedding_model.ckpt
+embedding_norm_file: results/sparsemax_512/1986/save/CKPT+2021-09-28+17-37-05+00/normalizer.ckpt
+device: 'cuda:0'
+
+# Feature parameters
+n_mels: 80
+left_frames: 0
+right_frames: 0
+deltas: False
+
+# Model params
+compute_features: !new:speechbrain.lobes.features.Fbank
+    n_mels: !ref <n_mels>
+    left_frames: !ref <left_frames>
+    right_frames: !ref <right_frames>
+    deltas: !ref <deltas>
+
+mean_var_norm: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+    std_norm: False
+
+embedding_model: !new:speechbrain.lobes.models.Xvector.Xvector
+    in_channels: 512
+    activation: !name:torch.nn.LeakyReLU
+    tdnn_blocks: 5
+    tdnn_channels: [512, 512, 512, 512, 1500]
+    tdnn_kernel_sizes: [5, 3, 3, 1, 1]
+    tdnn_dilations: [1, 2, 3, 1, 1]
+    lin_neurons: 512
+pase_yaml: pase_yamls/vc_sparsemax.yaml
+
+baseline: False
+mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
+   norm_type: global

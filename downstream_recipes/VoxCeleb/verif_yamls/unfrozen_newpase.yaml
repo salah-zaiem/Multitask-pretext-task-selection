@@ -1,0 +1,64 @@
+# ############################################################################
+# Model: xvector for Speaker verification
+# ############################################################################
+
+save_folder: unfrozennewpase
+embedding_model_file: results/unfrozen_new_w2vpase_test/1986/save/CKPT+2021-10-05+02-37-03+00/embedding_model.ckpt
+embedding_norm_file: results/unfrozen_new_w2vpase_test/1986/save/CKPT+2021-10-05+02-37-03+00/normalizer.ckpt
+device: 'cuda:0'
+
+wav2vec2_hub: facebook/wav2vec2-base
+# Feature parameters
+n_mels: 80
+left_frames: 0
+right_frames: 0
+deltas: False
+freeze_wav2vec: True
+pretrain: False
+wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
+   source: !ref <wav2vec2_hub>
+   output_norm: False
+   freeze: !ref <freeze_wav2vec>
+   pretrain: !ref <pretrain>
+   save_path: !ref <save_folder>/wav2vec2_checkpoint
+
+   
+   
+pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
+   collect_in: !ref <save_folder>
+   loadables:
+      wav2vec2: !ref <wav2vec2>
+   paths:
+      wav2vec2: results/unfrozen_new_w2vpase_test/1986/save/CKPT+2021-10-05+02-37-03+00/wav2vec2.ckpt
+
+
+
+# Model params
+compute_features: !new:speechbrain.lobes.features.Fbank
+    n_mels: !ref <n_mels>
+    left_frames: !ref <left_frames>
+    right_frames: !ref <right_frames>
+    deltas: !ref <deltas>
+
+mean_var_norm: !new:speechbrain.processing.features.InputNormalization
+    norm_type: sentence
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: sentence
+
+
+embedding_model: !new:speechbrain.lobes.models.Xvector.Xvector
+    in_channels: 768
+    activation: !name:torch.nn.LeakyReLU
+    tdnn_blocks: 5
+    tdnn_channels: [512, 512, 512, 512, 1500]
+    tdnn_kernel_sizes: [5, 3, 3, 1, 1]
+    tdnn_dilations: [1, 2, 3, 1, 1]
+    lin_neurons: 512
+
+modules:
+    wav2vec2: !ref <wav2vec2>
+    normalize: !ref <normalize>
+
+baseline: False
+mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
+   norm_type: global

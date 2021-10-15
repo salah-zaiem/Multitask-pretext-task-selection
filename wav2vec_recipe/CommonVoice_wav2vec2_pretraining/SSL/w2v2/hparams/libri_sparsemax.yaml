@@ -1,0 +1,307 @@
+# ################################
+# Model: wav2vec2 + DNN + CTC/Attention
+# Augmentation: SpecAugment
+# Authors: Titouan Parcollet 2021
+# ################################
+
+# Seed needs to be set at top of yaml, before objects with parameters are made
+seed: 1234
+__set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
+output_folder: !ref results/librispeech_sparsemax_outside_sum/<seed>
+wer_file: !ref <output_folder>/wer.txt
+save_folder: !ref <output_folder>/save
+train_log: !ref <output_folder>/train_log.txt
+csv_folder: /gpfsscratch/rech/nou/uzn19yk/new_path_clean/
+
+# URL for the biggest HuggingFace english wav2vec2 model.
+wav2vec2_hub: facebook/wav2vec2-base
+training_folder: /gpfsscratch/rech/nou/uzn19yk/new_path_clean/
+# Data files
+data_folder: /gpfsscratch/rech/nou/uzn19yk/cv-corpus-5.1-2020-06-22/en/  # e.g, /localscratch/cv-corpus-5.1-2020-06-22/fr
+train_tsv_file: !ref <data_folder>/train.tsv  # Standard CommonVoice .tsv files
+dev_tsv_file: !ref <data_folder>/dev.tsv  # Standard CommonVoice .tsv files
+test_tsv_file: !ref <data_folder>/test.tsv  # Standard CommonVoice .tsv files
+accented_letters: False
+language: en # use 'it' for Italian, 'rw' for Kinyarwanda, 'en' for english
+train_csv: !ref <data_folder>/train.csv
+valid_csv: !ref <data_folder>/dev.csv
+test_csv: !ref <data_folder>/test.csv
+skip_prep: True # Skip data preparation
+
+# We remove utterance slonger than 10s in the train/dev/test sets as
+# longer sentences certainly correspond to "open microphones".
+avoid_if_longer_than: 10.0
+avoid_if_shorter_than: 1.0
+
+# Training parameters
+number_of_epochs: 200
+lr_adam: 2.0
+gradient_accumulation: 8
+d_model: 768
+sorting: ascending
+auto_mix_prec: False
+sample_rate: 16000
+ckpt_interval_minutes: 30 # save checkpoint every N min
+n_fft: 400
+n_mels: 80
+weight_decay: 0.01
+
+# With data_parallel batch_size is split into N jobs
+# With DDP batch_size is multiplied by N jobs
+# Must be 6 per GPU to fit 32GB of VRAM
+batch_size: 12
+test_batch_size: 4
+
+dataloader_options:
+    batch_size: !ref <batch_size>
+    num_workers: 4
+test_dataloader_options:
+    batch_size: !ref <test_batch_size>
+    num_workers: 4
+
+# BPE parameters
+token_type: unigram  # ["unigram", "bpe", "char"]
+character_coverage: 1.0
+
+# Model parameters
+activation: !name:torch.nn.LeakyReLU
+dnn_layers: 2
+dnn_neurons: 1024
+emb_size: 128
+dec_neurons: 1024
+freeze_wav2vec: False
+ctc_neurons: 768
+# Outputs
+output_neurons: 1000  # BPE size, index(blank/eos/bos) = 0
+
+# Decoding parameters
+# Be sure that the bos and eos index match with the BPEs ones
+blank_index: 0
+bos_index: 1
+eos_index: 2
+min_decode_ratio: 0.0
+max_decode_ratio: 1.0
+beam_size: 80
+eos_threshold: 1.5
+using_max_attn_shift: True
+max_attn_shift: 140
+ctc_weight_decode: 0.0
+temperature: 1.50
+
+#
+# Functions and classes
+#
+
+normalize_wavs: !new:speechbrain.processing.features.InputNormalization
+    norm_type: sentence
+
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
+    limit: !ref <number_of_epochs>
+
+wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec_pretrain.HuggingFaceWav2Vec2
+    source: !ref <wav2vec2_hub>
+    save_path: !ref <save_folder>/wav2vec2_checkpoints
+    pretrain: False
+
+#workers: ['melfs', 'mfcc', 'F0final_sma', 'logHNR_sma',  'pcm_RMSenergy_sma', 'voicingFinalUnclipped_sma', 'alphaRatio_sma3', 'pcm_zcr_sma', 'audspecRasta_lengthL1norm_sma' ]
+workers: ['F0final_sma', 'logHNR_sma',  'alphaRatio_sma3', 'audspecRasta_lengthL1norm_sma' ]
+workers_weights: {"logHNR_sma" :0.2710 , "F0final_sma":0.3745,  'alphaRatio_sma3':0.2969, 'audspecRasta_lengthL1norm_sma':0.0575  }
+
+
+#Workers 
+#Gender classifier
+gen: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.Softmax
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+#Age classifier
+age: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.Softmax
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 9
+#Accent  Classifier
+accent: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.Softmax
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 16
+
+quality: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 1
+
+f0semitone: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+f1std: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+aratio: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+jitter: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+
+meanvoiced: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+dec: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 160
+
+loudness: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+f0_lld: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+jitterLocal: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+alpharatio_lld: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+audspec_rasta: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+audspec_L1: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+shimmerLocal: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+pcmzcr: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+loghnr: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+pcm: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+voicing: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 2
+
+mfcc: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 60
+gammatone: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
+    activation: !name:torch.nn.PReLU
+    input_shape: [null, null, !ref <ctc_neurons>]
+    dnn_neurons: 64
+
+
+
+
+
+
+normalize: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+
+mfcc_normalizer: !new:speechbrain.processing.features.InputNormalization
+    norm_type: global
+
+
+
+
+    
+
+classification_loss: !name:torch.nn.CrossEntropyLoss 
+
+reconstruction_loss: !name:torch.nn.MSELoss
+
+
+regression_loss: !name:torch.nn.L1Loss
+
+
+
+
+modules:
+    wav2vec2: !ref <wav2vec2>
+    quality: !ref <quality>
+    dec: !ref <dec>
+    age: !ref <age>
+    gen: !ref <gen>
+    accent: !ref <accent>
+    normalize: !ref <normalize>
+    normalize_wavs: !ref <normalize_wavs>
+    mfcc_normalizer: !ref <mfcc_normalizer>
+    f0semitone: !ref <f0semitone>
+    jitter: !ref <jitter>
+    meanvoiced: !ref <meanvoiced>
+    aratio: !ref <aratio>
+    f1std: !ref <f1std>
+    loudness: !ref <loudness>
+    f0_lld: !ref <f0_lld>
+    pcm : !ref <pcm>
+    jitterLocal: !ref <jitterLocal>
+    voicing: !ref <voicing>
+    alpharatio_lld: !ref <alpharatio_lld>
+    audspec_rasta: !ref <audspec_rasta>
+    audspec_L1: !ref <audspec_L1>
+    shimmerLocal: !ref <shimmerLocal>
+    pcmzcr: !ref <pcmzcr>
+    loghnr: !ref <loghnr>
+    mfcc: !ref <mfcc>
+model: !new:torch.nn.ModuleList 
+    - [!ref <wav2vec2>, !ref <quality>, !ref <dec>, !ref <age>, !ref <gen>, !ref <accent>, !ref <normalize>, !ref <f0semitone>, !ref <jitter>, !ref <meanvoiced>, !ref <aratio>, !ref <f1std>, !ref <loudness>, !ref <f0_lld>, !ref <voicing>, !ref <pcm>, !ref <jitterLocal> , !ref <mfcc>, !ref <pcmzcr>, !ref <loghnr>, !ref <shimmerLocal>, !ref <audspec_rasta>, !ref <audspec_L1>] 
+
+compute_features: !new:speechbrain.lobes.features.Fbank
+    sample_rate: !ref <sample_rate>
+    n_fft: !ref <n_fft>
+    n_mels: !ref <n_mels>
+log_softmax: !new:speechbrain.nnet.activations.Softmax
+    apply_log: True
+
+opt_class: !name:torch.optim.AdamW
+    lr: 0
+    betas: (0.9, 0.98)
+    eps: 0.000000001
+    weight_decay: !ref <weight_decay>
+
+noam_annealing: !new:speechbrain.nnet.schedulers.NoamScheduler
+    lr_initial: !ref <lr_adam>
+    n_warmup_steps: 25000
+    model_size: !ref <d_model>
+
+#lr_annealing: !new:speechbrain.nnet.schedulers.NewBobScheduler
+#    initial_value: !ref <lr>
+#    improvement_threshold: 0.0025
+#    annealing_factor: 0.9
+#    patient: 0
+
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
+    checkpoints_dir: !ref <save_folder>
+    recoverables:
+        wav2vec2: !ref <wav2vec2>
+        model: !ref <model>
+        scheduler: !ref <noam_annealing>
+        counter: !ref <epoch_counter>
+
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
+    save_file: !ref <train_log>
+

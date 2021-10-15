@@ -1,0 +1,10 @@
+# SpeechBrain recipes to train wav2vec 2.0 models
+
+This folder is formatted as a standard SpeechBrain recipe. Hence it will run in the same way as any other recipe.
+For more information on how to install and run SpeechBrain, please go over the official [toolkit website](https://speechbrain.github.io).
+
+The library `transformers` from HuggingFace must be installed to train wav2vec 2.0 models with SpeechBrain.
+
+To train a multitask wav2vec 2.0 model, please extract beforehand the workers labels as specified in the dedicated recipe of this repository. Then, specify the path of the training manifests when running the model with SpeechBrain.
+
+**The entire recipe will be adapted and published as an official SpeechBrain recipe later. For now, it is not done to not violate the double-blind review process**
