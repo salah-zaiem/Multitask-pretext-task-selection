@@ -1,5 +1,5 @@
-# ICLR2022 submission
-Here is the repository to reproduce the results of our iclr22 submission. It involves four major steps : pseudo-labels extraction, pretext tasks selection and weighting, self-supervised training, downstream finetuning. 
+# JSTSP submission
+Here is the repository to reproduce the results of our JSTSP submission. It involves four major steps : pseudo-labels extraction, pretext tasks selection and weighting, self-supervised training, downstream finetuning. 
 
 
 ### Feature extraction
